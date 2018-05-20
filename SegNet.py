@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import os
+import tensorflow as tf
 from keras.models import Model
 from keras.layers import Input
 from keras.layers.core import Dense, Dropout, Activation, Flatten, Reshape, Permute
@@ -6,11 +8,13 @@ from keras.layers.convolutional import Convolution2D, MaxPooling2D, UpSampling2D
 from keras.layers.normalization import BatchNormalization
 from keras.layers.merge import Multiply, Concatenate
 from keras.utils import np_utils
+from keras.callbacks import ModelCheckpoint
+from wx_callbacks import MyCallBack
 
 from Mylayers import MaxPoolingWithArgmax2D, MaxUnpooling2D
 from generator import data_gen_small
+from wx_generator import train_val_generator
 
-import os
 import numpy as np
 import argparse
 import json
@@ -132,7 +136,8 @@ def CreateSegNet(input_shape, n_labels, kernel=3, pool_size=(2, 2), output_mode=
 
     conv_26 = Convolution2D(n_labels, (1, 1), padding="valid")(conv_25)
     conv_26 = BatchNormalization()(conv_26)
-    conv_26 = Reshape((input_shape[0] * input_shape[1], n_labels), input_shape=(input_shape[0], input_shape[1], n_labels))(conv_26)
+    conv_26 = Reshape((input_shape[0] * input_shape[1], n_labels),
+                      input_shape=(input_shape[0], input_shape[1], n_labels))(conv_26)
 
     outputs = Activation(output_mode)(conv_26)
     print("Build decoder done..")
@@ -144,94 +149,102 @@ def CreateSegNet(input_shape, n_labels, kernel=3, pool_size=(2, 2), output_mode=
 
 def main(args):
     # set the necessary list
-    train_list = pd.read_csv(args.train_list,header=None)
-    val_list = pd.read_csv(args.val_list,header=None)
-
-    # set the necessary directories
-    trainimg_dir = args.trainimg_dir
-    trainmsk_dir = args.trainmsk_dir
-    valimg_dir = args.valimg_dir
-    valmsk_dir = args.valmsk_dir
-
-    train_gen = data_gen_small(trainimg_dir, trainmsk_dir, train_list, args.batch_size, [args.input_shape[0], args.input_shape[1]], args.n_labels)
-    val_gen = data_gen_small(valimg_dir, valmsk_dir, val_list, args.batch_size, [args.input_shape[0], args.input_shape[1]], args.n_labels)
+    # train_list = pd.read_csv(args.train_list,header=None)
+    # val_list = pd.read_csv(args.val_list,header=None)
+    # 
+    # # set the necessary directories
+    # trainimg_dir = args.trainimg_dir
+    # trainmsk_dir = args.trainmsk_dir
+    # valimg_dir = args.valimg_dir
+    # valmsk_dir = args.valmsk_dir
+    # 
+    # train_gen = data_gen_small(trainimg_dir, trainmsk_dir, train_list, args.batch_size, [args.input_shape[0], args.input_shape[1]], args.n_labels)
+    # val_gen = data_gen_small(valimg_dir, valmsk_dir, val_list, args.batch_size, [args.input_shape[0], args.input_shape[1]], args.n_labels)
+    train_gen, val_gen = train_val_generator(args.batch_size)
 
     segnet = CreateSegNet(args.input_shape, args.n_labels, args.kernel, args.pool_size, args.output_mode)
     print(segnet.summary())
 
+    checkpointer = ModelCheckpoint(filepath="model/weights.{epoch:02d}-{val_acc:.4f}.hdf5", verbose=1,
+                                   save_best_only=False)
+    mycallback = MyCallBack()
     segnet.compile(loss=args.loss, optimizer=args.optimizer, metrics=["accuracy"])
-    segnet.fit_generator(train_gen, steps_per_epoch=args.epoch_steps, epochs=args.n_epochs, validation_data=val_gen, validation_steps=args.val_steps)
+    segnet.fit_generator(train_gen, steps_per_epoch=args.epoch_steps, epochs=args.n_epochs, validation_data=val_gen,
+                         validation_steps=args.val_steps, callbacks=[checkpointer, mycallback])
 
-    segnet.save_weights("../LIP/pretrained/LIP_SegNet"+str(args.n_epochs)+".hdf5")
+    segnet.save_weights("model/finalSegNet" + str(args.n_epochs) + ".hdf5")
     print("sava weight done..")
 
     json_string = segnet.to_json()
-    open("../LIP/pretrained/LIP_SegNet.json", "w").write(json_string)
+    open("model/LIP_SegNet.json", "w").write(json_string)
 
 
 if __name__ == "__main__":
     # command line argments
     parser = argparse.ArgumentParser(description="SegNet LIP dataset")
     parser.add_argument("--train_list",
-            default="../LIP/TrainVal_images/train_id.txt",
-            help="train list path")
+                        default="../LIP/TrainVal_images/train_id.txt",
+                        help="train list path")
     parser.add_argument("--trainimg_dir",
-            default="../LIP/TrainVal_images/TrainVal_images/train_images/",
-            help="train image dir path")
+                        default="../LIP/TrainVal_images/TrainVal_images/train_images/",
+                        help="train image dir path")
     parser.add_argument("--trainmsk_dir",
-            default="../LIP/TrainVal_parsing_annotations/TrainVal_parsing_annotations/train_segmentations/",
-            help="train mask dir path")
+                        default="../LIP/TrainVal_parsing_annotations/TrainVal_parsing_annotations/train_segmentations/",
+                        help="train mask dir path")
     parser.add_argument("--val_list",
-            default="../LIP/TrainVal_images/val_id.txt",
-            help="val list path")
+                        default="../LIP/TrainVal_images/val_id.txt",
+                        help="val list path")
     parser.add_argument("--valimg_dir",
-            default="../LIP/TrainVal_images/TrainVal_images/val_images/",
-            help="val image dir path")
+                        default="../LIP/TrainVal_images/TrainVal_images/val_images/",
+                        help="val image dir path")
     parser.add_argument("--valmsk_dir",
-            default="../LIP/TrainVal_parsing_annotations/TrainVal_parsing_annotations/val_segmentations/",
-            help="val mask dir path")
+                        default="../LIP/TrainVal_parsing_annotations/TrainVal_parsing_annotations/val_segmentations/",
+                        help="val mask dir path")
     parser.add_argument("--batch_size",
-            default=10,
-            type=int,
-            help="batch size")
+                        default=4,
+                        type=int,
+                        help="batch size")
     parser.add_argument("--n_epochs",
-            default=10,
-            type=int,
-            help="number of epoch")
+                        default=20,
+                        type=int,
+                        help="number of epoch")
     parser.add_argument("--epoch_steps",
-            default=100,
-            type=int,
-            help="number of epoch step")
+                        default=108,
+                        type=int,
+                        help="number of epoch step")
     parser.add_argument("--val_steps",
-            default=10,
-            type=int,
-            help="number of valdation step")
+                        default=10,
+                        type=int,
+                        help="number of valdation step")
     parser.add_argument("--n_labels",
-            default=20,
-            type=int,
-            help="Number of label")
+                        default=2,
+                        type=int,
+                        help="Number of label")
     parser.add_argument("--input_shape",
-            default=(256, 256, 3),
-            help="Input images shape")
+                        default=(224, 224, 3),
+                        help="Input images shape")
+    # parser.add_argument("--input_shape",
+    #                     default=(240, 320, 3),
+    #                     help="Input images shape")
     parser.add_argument("--kernel",
-            default=3,
-            type=int,
-            help="Kernel size")
+                        default=3,
+                        type=int,
+                        help="Kernel size")
     parser.add_argument("--pool_size",
-            default=(2, 2),
-            help="pooling and unpooling size")
+                        default=(2, 2),
+                        help="pooling and unpooling size")
     parser.add_argument("--output_mode",
-            default="softmax",
-            type=str,
-            help="output activation")
+                        default="softmax",
+                        type=str,
+                        help="output activation")
     parser.add_argument("--loss",
-            default="categorical_crossentropy",
-            type=str,
-            help="loss function")
+                        default="categorical_crossentropy",
+                        type=str,
+                        help="loss function")
     parser.add_argument("--optimizer",
-            default="adadelta",
-            type=str,
-            help="oprimizer")
+                        default="adadelta",
+                        type=str,
+                        help="oprimizer")
     args = parser.parse_args()
 
     main(args)

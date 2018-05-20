@@ -2,3 +2,7 @@ __pycache__/
 .ipynb_checkpoints
 pretrained/*.hdf5
 *.ipynb
+.idea/
+data/
+npydata/
+model/
