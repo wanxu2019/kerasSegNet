@@ -162,7 +162,11 @@ def main(args):
     # val_gen = data_gen_small(valimg_dir, valmsk_dir, val_list, args.batch_size, [args.input_shape[0], args.input_shape[1]], args.n_labels)
     train_gen, val_gen = train_val_generator(args.batch_size)
 
-    segnet = CreateSegNet(args.input_shape, args.n_labels, args.kernel, args.pool_size, args.output_mode)
+    # segnet = CreateSegNet(args.input_shape, args.n_labels, args.kernel, args.pool_size, args.output_mode)
+
+    from keras_fcn import FCN
+    segnet=FCN(input_shape=args.input_shape,classes=args.n_labels,weights='imagenet',trainable_encoder=True)
+
     print(segnet.summary())
 
     checkpointer = ModelCheckpoint(filepath="model/weights.{epoch:02d}-{val_acc:.4f}.hdf5", verbose=1,
